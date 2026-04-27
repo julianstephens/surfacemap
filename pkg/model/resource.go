@@ -1,11 +1,17 @@
 package model
 
+// Resource represents a Terraform resource with its attributes and location in the code
 type Resource struct {
-	ID         string                      `json:"id"`                // Terraform resource address, e.g. "aws_lambda_function.my_function"
-	Type       string                      `json:"type" hcl:",label"` // Resource type, e.g. "aws_lambda_function"
-	Attributes map[string]any              `json:"attributes"`        // Raw Terraform arguments for the resource
-	Blocks     map[string][]map[string]any `json:"blocks"`
-	Location   FileLocation                `json:"location"` // File and line number where the resource is defined in the Terraform code
+	// The ID is the Terraform resource address, which uniquely identifies the resource within the Terraform configuration. It typically follows the format "resource_type.resource_name", e.g. "aws_lambda_function.my_function".
+	ID string `json:"id"` // Terraform resource address, e.g. "aws_lambda_function.my_function"
+	// The Type is the Terraform resource type, which indicates the kind of resource being defined, e.g. "aws_lambda_function". This is used to determine how to extract and model the resource.
+	Type string `json:"type" hcl:",label"` // Resource type, e.g. "aws_lambda_function"
+	// Attributes is a map of the raw Terraform arguments for the resource, where the keys are the argument names and the values are their corresponding values. This allows for flexible storage of any attributes defined in the Terraform code.
+	Attributes map[string]any `json:"attributes"` // Raw Terraform arguments for the resource
+	// Blocks is a map of nested blocks within the resource, where the keys are the block types (e.g. "environment", "vpc_config") and the values are slices of maps representing each block instance. Each block instance is a map of its own attributes. This structure allows for representing complex nested configurations in Terraform.
+	Blocks map[string][]map[string]any `json:"blocks"`
+	// Location provides the file and line number where the resource is defined in the Terraform code, which is useful for tracing back to the source configuration and for debugging purposes.
+	Location FileLocation `json:"location"` // File and line number where the resource is defined in the Terraform code
 }
 
 type FileLocation struct {
