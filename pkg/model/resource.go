@@ -1,10 +1,11 @@
 package model
 
 type Resource struct {
-	ID         string         `json:"id"`         // Terraform resource address, e.g. "aws_lambda_function.my_function"
-	Type       string         `json:"type"`       // Resource type, e.g. "aws_lambda_function"
-	Attributes map[string]any `json:"attributes"` // Raw Terraform arguments for the resource
-	Location   FileLocation   `json:"location"`   // File and line number where the resource is defined in the Terraform code
+	ID         string                      `json:"id"`                // Terraform resource address, e.g. "aws_lambda_function.my_function"
+	Type       string                      `json:"type" hcl:",label"` // Resource type, e.g. "aws_lambda_function"
+	Attributes map[string]any              `json:"attributes"`        // Raw Terraform arguments for the resource
+	Blocks     map[string][]map[string]any `json:"blocks"`
+	Location   FileLocation                `json:"location"` // File and line number where the resource is defined in the Terraform code
 }
 
 type FileLocation struct {

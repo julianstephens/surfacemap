@@ -31,10 +31,10 @@ const (
 )
 
 type FindingRegistry struct {
-	findings   []*Finding
-	byType     map[FindingType][]*Finding
-	bySeverity map[Severity][]*Finding
-	byResource map[string][]*Finding
+	Findings   []*Finding
+	ByType     map[FindingType][]*Finding
+	BySeverity map[Severity][]*Finding
+	ByResource map[string][]*Finding
 }
 
 func (r *FindingRegistry) Add(finding *Finding)                       {}
