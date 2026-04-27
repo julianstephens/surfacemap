@@ -2,43 +2,24 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"os"
 
 	"github.com/alecthomas/kong"
 	"github.com/julianstephens/go-utils/cliutil"
+	"github.com/julianstephens/go-utils/generic"
+	"github.com/julianstephens/go-utils/helpers"
+	"github.com/julianstephens/go-utils/logger"
 
 	"github.com/julianstephens/surfacemap/internal"
 	"github.com/julianstephens/surfacemap/internal/cli"
 )
 
-type Globals struct {
-	VarFile string      `help:"Path to terraform.tfvars file" type:"existingfile"`
-	Root    string      `help:"Root directory of the project to analyze" type:"dir"`
-	Verbose bool        `short:"v" help:"Enable verbose output"`
-	Quiet   bool        `short:"q" help:"Suppress all output except for errors"`
-	Output  string      `short:"o" help:"Output format: text, json, markdown (default: text)" enum:"text,json,markdown" default:"text"`
-	NoColor bool        `help:"Disable colored output"`
-	Config  string      `help:"Path to configuration file (default: surfacemap.yaml)" type:"existingfile"`
-	Version VersionFlag `short:"V" help:"Print version information and exit"`
-}
-
-type CLI struct {
-	Globals
-}
-
-type VersionFlag string
-
-func (v VersionFlag) Decode(ctx *kong.DecodeContext) error { return nil }
-func (v VersionFlag) IsBool() bool                         { return true }
-func (v VersionFlag) BeforeApply(app *kong.Kong, vars kong.Vars) error {
-	cliutil.PrintColored(fmt.Sprintf("surfacemap v%s", vars["version"]), cliutil.ColorCyan)
-	app.Exit(0)
-	return nil
-}
-
 func main() {
-	app := &CLI{}
+	app := &cli.CLI{
+		Globals: cli.Globals{
+			Version: cli.VersionFlag(internal.Version),
+		},
+	}
 
 	kongCtx := kong.Parse(app,
 		kong.Name("surfacemap"),
@@ -52,7 +33,23 @@ func main() {
 		},
 	)
 
-	err := kongCtx.Run()
+	if err := helpers.Ensure(app.Root, true); err != nil {
+		kongCtx.FatalIfErrorf(errors.New("root directory must be provided via --root"))
+	}
+
+	if app.Quiet {
+		app.Logger = logger.NewNoop()
+	} else {
+		app.Logger = logger.New().WithField("component", "root")
+		if err := app.Logger.SetLogLevel(generic.If(app.Verbose, "info", "error")); err != nil {
+			panic(errors.New("unable to initialize logger"))
+		}
+	}
+
+	cliutil.SetDefaultConsole(cliutil.NewConsole(generic.If[cliutil.Formatter](app.NoColor, cliutil.NewPlainTextFormatter(), cliutil.NewColoredFormatter()), os.Stdout))
+	app.Console = cliutil.DefaultConsole()
+
+	err := kongCtx.Run(&app.Globals)
 	if err != nil {
 		if errors.Is(err, cli.ErrNotImplemented) {
 			os.Exit(2)
