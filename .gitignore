@@ -41,3 +41,5 @@ SPEC.md
 tmp
 
 .github/prompts
+data
+surfacemap.yaml
