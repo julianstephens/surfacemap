@@ -7,7 +7,6 @@ import (
 )
 
 var (
-	ErrInvalidResourceType = errors.New("invalid resource type for Lambda extractor")
 	ErrMissingFunctionName = errors.New("missing function_name attribute in Lambda resource")
 	ErrMissingRoleArn      = errors.New("missing role attribute in Lambda resource")
 )
@@ -17,7 +16,7 @@ type LambdaExtractor struct {
 
 func (le *LambdaExtractor) Extract(resource model.Resource) (*model.LambdaFunction, error) {
 	if resource.Type != "aws_lambda_function" {
-		return nil, ErrInvalidResourceType
+		return nil, ErrUnsupportedResourceType(resource.Type)
 	}
 
 	funcName, ok := resource.Attributes["function_name"].(string)
