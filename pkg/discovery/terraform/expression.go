@@ -1,7 +1,6 @@
 package terraform
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 
@@ -9,6 +8,8 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/gocty"
+
+	pkgerrors "github.com/julianstephens/surfacemap/pkg/errors"
 )
 
 type ExprValue interface {
@@ -177,7 +178,15 @@ func DecodeExpr(expr hcl.Expression) (ExprValue, error) {
 
 			keyStr, ok := keyExpr.ToAny().(string)
 			if !ok {
-				return nil, fmt.Errorf("object keys must be strings, got %T at %s", keyExpr.ToAny(), item.KeyExpr.Range().String())
+				// Create an ExpressionError for invalid object key type
+				return nil, pkgerrors.NewExpressionErrorFromRange(
+					pkgerrors.ErrInvalidExpression,
+					"", // filePath not available in this context
+					item.KeyExpr.Range(),
+					"",
+					fmt.Sprintf("object keys must be strings, got %T", keyExpr.ToAny()),
+					nil,
+				)
 			}
 
 			valExpr, err := DecodeExpr(item.ValueExpr)
@@ -244,10 +253,21 @@ func decodeTraversal(traversal hcl.Traversal) (segments []string) {
 
 func throwDecodeError(diag hcl.Diagnostics) (err error) {
 	if diag.HasErrors() {
-		err = &TerraformParserError{
-			Err:   ErrDecodeExpression,
-			Cause: errors.New(diag.Error()),
+		// Extract location from first diagnostic if available
+		line, column := 0, 0
+		if len(diag) > 0 && diag[0].Subject != nil {
+			line = diag[0].Subject.Start.Line
+			column = diag[0].Subject.Start.Column
 		}
+		err = pkgerrors.NewExpressionError(
+			pkgerrors.ErrDecodeExpression,
+			"", // filePath not available in this context
+			line,
+			column,
+			"",
+			diag.Error(),
+			nil,
+		)
 	}
 	return
 }

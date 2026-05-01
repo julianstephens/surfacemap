@@ -1,14 +1,8 @@
 package extractors
 
 import (
-	"errors"
-
+	"github.com/julianstephens/surfacemap/pkg/errors"
 	"github.com/julianstephens/surfacemap/pkg/model"
-)
-
-var (
-	ErrMissingFunctionName = errors.New("missing function_name attribute in Lambda resource")
-	ErrMissingRoleArn      = errors.New("missing role attribute in Lambda resource")
 )
 
 type LambdaExtractor struct {
@@ -16,16 +10,37 @@ type LambdaExtractor struct {
 
 func (le *LambdaExtractor) Extract(resource model.Resource) (*model.LambdaFunction, error) {
 	if resource.Type != "aws_lambda_function" {
-		return nil, ErrUnsupportedResourceType(resource.Type)
+		return nil, errors.NewExtractionError(
+			errors.ErrUnsupportedResourceType,
+			resource.ID,
+			resource.Type,
+			resource.Location,
+			"expected aws_lambda_function",
+			nil,
+		)
 	}
 
 	funcName, ok := resource.Attributes["function_name"].(string)
 	if !ok {
-		return nil, ErrMissingFunctionName
+		return nil, errors.NewAttributeErrorWithType(
+			errors.ErrMissingAttribute,
+			resource.ID,
+			"function_name",
+			"string",
+			resource.Attributes["function_name"],
+			resource.Location,
+		)
 	}
 	roleArn, ok := resource.Attributes["role"].(string)
 	if !ok {
-		return nil, ErrMissingRoleArn
+		return nil, errors.NewAttributeErrorWithType(
+			errors.ErrMissingAttribute,
+			resource.ID,
+			"role",
+			"string",
+			resource.Attributes["role"],
+			resource.Location,
+		)
 	}
 	handler, ok := resource.Attributes["handler"].(string)
 	if !ok {

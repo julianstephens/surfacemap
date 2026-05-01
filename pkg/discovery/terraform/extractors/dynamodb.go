@@ -1,14 +1,8 @@
 package extractors
 
 import (
-	"errors"
-
+	"github.com/julianstephens/surfacemap/pkg/errors"
 	"github.com/julianstephens/surfacemap/pkg/model"
-)
-
-var (
-	ErrMissingTableName = errors.New("missing name attribute in DynamoDB resource")
-	ErrMissingRegion    = errors.New("missing region attribute in DynamoDB resource")
 )
 
 type DynamoDBExtractor struct {
@@ -16,17 +10,38 @@ type DynamoDBExtractor struct {
 
 func (de *DynamoDBExtractor) Extract(resource model.Resource) (*model.DynamoDBTable, error) {
 	if resource.Type != "aws_dynamodb_table" {
-		return nil, ErrUnsupportedResourceType(resource.Type)
+		return nil, errors.NewExtractionError(
+			errors.ErrUnsupportedResourceType,
+			resource.ID,
+			resource.Type,
+			resource.Location,
+			"expected aws_dynamodb_table",
+			nil,
+		)
 	}
 
 	tableName, ok := resource.Attributes["name"].(string)
 	if !ok {
-		return nil, ErrMissingTableName
+		return nil, errors.NewAttributeErrorWithType(
+			errors.ErrMissingAttribute,
+			resource.ID,
+			"name",
+			"string",
+			resource.Attributes["name"],
+			resource.Location,
+		)
 	}
 
 	region, ok := resource.Attributes["region"].(string)
 	if !ok {
-		return nil, ErrMissingRegion
+		return nil, errors.NewAttributeErrorWithType(
+			errors.ErrMissingAttribute,
+			resource.ID,
+			"region",
+			"string",
+			resource.Attributes["region"],
+			resource.Location,
+		)
 	}
 
 	return &model.DynamoDBTable{
