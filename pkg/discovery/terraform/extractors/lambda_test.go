@@ -1,9 +1,11 @@
 package extractors_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/julianstephens/surfacemap/pkg/discovery/terraform/extractors"
+	pkgerrors "github.com/julianstephens/surfacemap/pkg/errors"
 	"github.com/julianstephens/surfacemap/pkg/model"
 )
 
@@ -18,7 +20,7 @@ func TestLambdaExtractor_Extract(t *testing.T) {
 		resource model.Resource
 		want     *model.LambdaFunction
 		wantErr  bool
-		errMsg   string
+		sentinel error
 	}{
 		{
 			name: "successful extraction with required fields only",
@@ -167,9 +169,9 @@ func TestLambdaExtractor_Extract(t *testing.T) {
 				Blocks:   map[string][]map[string]any{},
 				Location: model.FileLocation{},
 			},
-			want:    nil,
-			wantErr: true,
-			errMsg:  "missing function_name attribute in Lambda resource",
+			want:     nil,
+			wantErr:  true,
+			sentinel: pkgerrors.ErrMissingAttribute,
 		},
 		{
 			name: "error when function_name is not a string",
@@ -183,9 +185,9 @@ func TestLambdaExtractor_Extract(t *testing.T) {
 				Blocks:   map[string][]map[string]any{},
 				Location: model.FileLocation{},
 			},
-			want:    nil,
-			wantErr: true,
-			errMsg:  "missing function_name attribute in Lambda resource",
+			want:     nil,
+			wantErr:  true,
+			sentinel: pkgerrors.ErrMissingAttribute,
 		},
 		{
 			name: "error when role is missing",
@@ -198,9 +200,9 @@ func TestLambdaExtractor_Extract(t *testing.T) {
 				Blocks:   map[string][]map[string]any{},
 				Location: model.FileLocation{},
 			},
-			want:    nil,
-			wantErr: true,
-			errMsg:  "missing role attribute in Lambda resource",
+			want:     nil,
+			wantErr:  true,
+			sentinel: pkgerrors.ErrMissingAttribute,
 		},
 		{
 			name: "error when role is not a string",
@@ -214,9 +216,9 @@ func TestLambdaExtractor_Extract(t *testing.T) {
 				Blocks:   map[string][]map[string]any{},
 				Location: model.FileLocation{},
 			},
-			want:    nil,
-			wantErr: true,
-			errMsg:  "missing role attribute in Lambda resource",
+			want:     nil,
+			wantErr:  true,
+			sentinel: pkgerrors.ErrMissingAttribute,
 		},
 		{
 			name: "extraction with environment but no variables",
@@ -333,8 +335,13 @@ func TestLambdaExtractor_Extract(t *testing.T) {
 					t.Errorf("LambdaExtractor.Extract() error = nil, wantErr %v", tt.wantErr)
 					return
 				}
-				if err.Error() != tt.errMsg {
-					t.Errorf("LambdaExtractor.Extract() error = %v, wantErr %v", err.Error(), tt.errMsg)
+				if tt.sentinel != nil && !errors.Is(err, tt.sentinel) {
+					t.Errorf("LambdaExtractor.Extract() error = %v, want sentinel error %v", err, tt.sentinel)
+				}
+				// Verify it's an AttributeError with proper context
+				var attrErr *pkgerrors.AttributeError
+				if tt.sentinel == pkgerrors.ErrMissingAttribute && !errors.As(err, &attrErr) {
+					t.Errorf("LambdaExtractor.Extract() error is not an AttributeError: %v", err)
 				}
 				return
 			}

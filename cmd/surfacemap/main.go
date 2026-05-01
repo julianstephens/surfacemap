@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"os"
 
 	"github.com/alecthomas/kong"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/julianstephens/surfacemap/internal"
 	"github.com/julianstephens/surfacemap/internal/cli"
+	pkgerrors "github.com/julianstephens/surfacemap/pkg/errors"
 )
 
 func main() {
@@ -34,15 +34,31 @@ func main() {
 	)
 
 	if err := helpers.Ensure(app.Root, true); err != nil {
-		kongCtx.FatalIfErrorf(errors.New("root directory must be provided via --root"))
+		kongCtx.FatalIfErrorf(pkgerrors.NewFileError(
+			pkgerrors.ErrInvalidConfiguration,
+			"validate",
+			app.Root,
+			nil,
+		))
 	}
 
 	if app.Quiet {
 		app.Logger = logger.NewNoop()
 	} else {
 		app.Logger = logger.New().WithField("component", "root")
-		if err := app.Logger.SetLogLevel(generic.If(app.Verbose, "info", "error")); err != nil {
-			panic(errors.New("unable to initialize logger"))
+		logLevel := "error"
+		if app.VVerbose {
+			logLevel = "debug"
+		} else if app.Verbose {
+			logLevel = "info"
+		}
+		if err := app.Logger.SetLogLevel(logLevel); err != nil {
+			panic(pkgerrors.NewFileError(
+				pkgerrors.ErrInternal,
+				"initialize",
+				"logger",
+				err,
+			))
 		}
 	}
 
@@ -51,7 +67,7 @@ func main() {
 
 	err := kongCtx.Run(&app.Globals)
 	if err != nil {
-		if errors.Is(err, cli.ErrNotImplemented) {
+		if pkgerrors.HasSentinel(err, pkgerrors.ErrNotImplemented) {
 			os.Exit(2)
 		}
 		kongCtx.FatalIfErrorf(err)

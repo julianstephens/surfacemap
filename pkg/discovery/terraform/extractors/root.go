@@ -1,17 +1,11 @@
 package extractors
 
 import (
-	"fmt"
-
 	"github.com/julianstephens/surfacemap/pkg/model"
 )
 
 type Extractor[T any] interface {
 	Extract(resource model.Resource) (T, error)
-}
-
-func ErrUnsupportedResourceType(resourceType string) error {
-	return fmt.Errorf("unsupported resource type: %s", resourceType)
 }
 
 // ExtractResource is a helper function that takes a generic model.Resource and determines which specific extractor to use based on the resource type. It returns the extracted resource as an interface{} and any error encountered during extraction. This function serves as a central point for dispatching to the appropriate extractor for different Terraform resource types.

@@ -2,7 +2,6 @@ package terraform
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -17,6 +16,7 @@ import (
 	"github.com/julianstephens/go-utils/generic"
 	"github.com/julianstephens/go-utils/logger"
 
+	pkgerrors "github.com/julianstephens/surfacemap/pkg/errors"
 	"github.com/julianstephens/surfacemap/pkg/model"
 )
 
@@ -37,6 +37,9 @@ type TerraformConfig struct {
 	Modules     []Module
 	Variables   map[string]any
 	Locals      map[string]any
+
+	ResourceCount int
+	FileCount     int
 }
 
 type HCLParser struct {
@@ -58,19 +61,22 @@ func (p *HCLParser) Parse(ctx context.Context, rootPath string) (*TerraformConfi
 	startTime := time.Now()
 	tfDirs, err := p.getTFDirPaths(rootPath)
 	if err != nil {
-		return nil, &TerraformParserError{
-			Err:     ErrDirWalk,
-			Cause:   err,
-			RootDir: rootPath,
-		}
+		return nil, pkgerrors.NewFileError(
+			pkgerrors.ErrDirWalk,
+			"traverse",
+			rootPath,
+			err,
+		)
 	}
 	p.logger.Infof("found %d directories containing .tf files", len(tfDirs))
 
 	if len(tfDirs) == 0 {
-		return nil, &TerraformParserError{
-			Err:     ErrNoHCLFiles,
-			RootDir: rootPath,
-		}
+		return nil, pkgerrors.NewFileError(
+			pkgerrors.ErrNoHCLFiles,
+			"discover",
+			rootPath,
+			nil,
+		)
 	}
 
 	accumulatedConfig := &TerraformConfig{
@@ -82,26 +88,20 @@ func (p *HCLParser) Parse(ctx context.Context, rootPath string) (*TerraformConfi
 	}
 
 	for _, tfDir := range tfDirs {
-		moduleConfig, err := p.parseAST(tfDir)
+		moduleConfig, fileCount, err := p.parseAST(tfDir)
 		if err != nil {
-			return nil, &TerraformParserError{
-				Err:       ErrParse,
-				Cause:     err,
-				RootDir:   rootPath,
-				ModuleDir: tfDir,
-			}
+			return nil, pkgerrors.WrapWithContext(err, "failed to parse module at %s", tfDir)
 		}
 
-		// Accumulate resources from this module
 		accumulatedConfig.Resources = append(accumulatedConfig.Resources, moduleConfig.Resources...)
 		accumulatedConfig.DataSources = append(accumulatedConfig.DataSources, moduleConfig.DataSources...)
+		accumulatedConfig.FileCount += fileCount
+		accumulatedConfig.ResourceCount += len(moduleConfig.Resources) + len(moduleConfig.DataSources)
 
-		// Merge locals (later modules override earlier ones with same name)
 		for k, v := range moduleConfig.Locals {
 			accumulatedConfig.Locals[k] = v
 		}
 
-		// Track as a module
 		accumulatedConfig.Modules = append(accumulatedConfig.Modules, Module{
 			Name:      filepath.Base(tfDir),
 			Source:    tfDir,
@@ -166,7 +166,7 @@ func (p *HCLParser) getTFFiles(dir string) (files []string, err error) {
 // parseAST loads and parses all .tf files in the specified module directory, returning a TerraformConfig with resources, data sources, variables, and locals defined in that module.
 // It uses the hclparse package to parse HCL files and tfconfig to load module metadata. The function also builds an index of blocks by their file and line number to correlate with resources and data sources defined in the module.
 // If any errors occur during file parsing or expression decoding, it returns a TerraformParserError with details about the failure.
-func (p *HCLParser) parseAST(moduleDir string) (conf *TerraformConfig, err error) {
+func (p *HCLParser) parseAST(moduleDir string) (conf *TerraformConfig, fileCount int, err error) {
 	conf = &TerraformConfig{
 		Resources:   []model.Resource{},
 		DataSources: []model.Resource{},
@@ -176,7 +176,14 @@ func (p *HCLParser) parseAST(moduleDir string) (conf *TerraformConfig, err error
 
 	module, diags := tfconfig.LoadModule(moduleDir)
 	if diags.HasErrors() {
-		err = errors.New(diags.Error())
+		// tfconfig.Diagnostics is a different type, so we create the error manually
+		err = pkgerrors.NewParseError(
+			pkgerrors.ErrParse,
+			moduleDir,
+			0, 0,
+			diags.Error(),
+			nil,
+		)
 		return
 	}
 
@@ -185,14 +192,33 @@ func (p *HCLParser) parseAST(moduleDir string) (conf *TerraformConfig, err error
 		return
 	}
 
+	// Accumulate parse errors instead of silently continuing
+	parseErrors := pkgerrors.NewMultiError("parsing HCL files")
 	parsedFiles := make(map[string]*hcl.File)
 	for _, filePath := range tfFiles {
 		hclFile, diags := p.parser.ParseHCLFile(filePath)
 		if diags.HasErrors() {
 			p.logger.Warnf("parse error in %s: %s", filePath, diags.Error())
+			parseErrors.Add(pkgerrors.NewParseErrorFromDiagnostics(
+				pkgerrors.ErrInvalidHCLFiles,
+				filePath,
+				diags,
+			))
 			continue
 		}
 		parsedFiles[filePath] = hclFile
+	}
+	fileCount = len(parsedFiles)
+
+	if parseErrors.HasErrors() {
+		p.logger.Warnf("encountered %d parse errors during file parsing", len(parseErrors.Errors))
+		for i, parseErr := range parseErrors.Errors {
+			p.logger.Warnf("  %d. %v", i+1, parseErr)
+		}
+	}
+
+	if len(parsedFiles) == 0 && parseErrors.HasErrors() {
+		return conf, 0, parseErrors.ErrorOrNil()
 	}
 
 	// key: "file:line"
@@ -276,6 +302,69 @@ func (p *HCLParser) parseAST(moduleDir string) (conf *TerraformConfig, err error
 	}
 
 	return
+}
+
+// ExtractModuleInputs parses a module block and extracts input variables with their expressions
+// Parameters:
+//
+//	modulePath: Path to file containing the module block
+//	moduleName: Name of the module block to find
+//
+// Returns:
+//
+//	map[string]*InputValue: Map of input variable names to their values and expressions
+//	error: Any parsing errors
+func (p *HCLParser) ExtractModuleInputs(modulePath, moduleName string) (map[string]*InputValue, error) {
+	hclFile, diags := p.parser.ParseHCLFile(modulePath)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+
+	body, ok := hclFile.Body.(*hclsyntax.Body)
+	if !ok {
+		return nil, fmt.Errorf("unexpected body type in %s: %T", modulePath, hclFile.Body)
+	}
+
+	inputs := make(map[string]*InputValue)
+
+	for _, block := range body.Blocks {
+		if block.Type != "module" {
+			continue
+		}
+		if len(block.Labels) == 0 || block.Labels[0] != moduleName {
+			continue
+		}
+
+		for name, attr := range block.Body.Attributes {
+			if name == "source" || name == "version" || name == "providers" ||
+				name == "count" || name == "for_each" || name == "depends_on" {
+				continue
+			}
+
+			exprVal, err := DecodeExpr(attr.Expr)
+			value := interface{}(nil)
+			isRef := false
+
+			if err == nil {
+				value = exprVal.ToAny()
+				isRef = exprVal.Type() == "traversal"
+			}
+
+			exprBytes := attr.Expr.Range().SliceBytes(hclFile.Bytes)
+			exprString := string(exprBytes)
+
+			inputs[name] = &InputValue{
+				Name:        name,
+				Value:       value,
+				Expression:  exprString,
+				IsReference: isRef,
+			}
+		}
+
+		break
+	}
+
+	return inputs, nil
 }
 
 func transformResource(res *tfconfig.Resource) model.Resource {

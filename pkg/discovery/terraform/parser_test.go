@@ -9,6 +9,8 @@ import (
 
 	"github.com/hashicorp/terraform-config-inspect/tfconfig"
 	"github.com/julianstephens/go-utils/logger"
+
+	pkgerrors "github.com/julianstephens/surfacemap/pkg/errors"
 )
 
 func TestGetTFDirPaths(t *testing.T) {
@@ -268,13 +270,13 @@ func TestParse_NoTFFiles(t *testing.T) {
 		t.Error("Parse() on dir without .tf files should return error")
 	}
 
-	// Should be ErrNoHCLFiles
-	if parserErr, ok := err.(*TerraformParserError); ok {
-		if parserErr.Err != ErrNoHCLFiles {
-			t.Errorf("Parse() error type = %v, want ErrNoHCLFiles", parserErr.Err)
-		}
-	} else {
-		t.Errorf("Parse() error should be *TerraformParserError, got %T", err)
+	// Should be ErrNoHCLFiles sentinel in a FileError
+	if !pkgerrors.HasSentinel(err, pkgerrors.ErrNoHCLFiles) {
+		t.Errorf("Parse() error should contain sentinel ErrNoHCLFiles, got %v", err)
+	}
+	
+	if !pkgerrors.IsFileError(err) {
+		t.Errorf("Parse() error should be FileError, got %T", err)
 	}
 }
 
